@@ -123,3 +123,19 @@ public record ShopLicenseStatusDto(
     DateTimeOffset LastCheckedAt,
     string Message
 );
+
+public record MessageResponseDto(string Message);
+
+public record CurrentUserResponseDto(
+    string? UserId,
+    string? Email,
+    string? FullName,
+    string? Role
+);
+
+public record EntityIdResponseDto(Guid Id);
+
+public record CommentCreatedResponseDto(Guid CommentId, string Message);
+
+public record CategoryCreatedResponseDto(Guid CategoryId, string Message);
+

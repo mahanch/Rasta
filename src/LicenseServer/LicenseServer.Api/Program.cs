@@ -82,6 +82,19 @@ builder.Services.AddSwaggerGen(c =>
             new List<string>()
         }
     });
+
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+    }
+
+    var infraXmlPath = Path.Combine(AppContext.BaseDirectory, "LicenseServer.Infrastructure.xml");
+    if (File.Exists(infraXmlPath))
+    {
+        c.IncludeXmlComments(infraXmlPath);
+    }
 });
 
 builder.Services.AddCors(options =>
