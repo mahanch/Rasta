@@ -17,8 +17,8 @@ var shopReadDb = mongodb.AddDatabase("shop-read-db");
 
 // 3. RabbitMQ Message Broker (for Event-Driven Projections & Licensing Sync)
 var messaging = builder.AddRabbitMQ("messaging")
-    .WithImage("rabbitmq", "3-management")
-    .WithManagementPlugin();
+    .WithManagementPlugin()
+    .WithDataVolume();
 
 // 4. License Management Server API
 var licenseServerApi = builder.AddProject<Projects.LicenseServer_Api>("licenseserver-api")
