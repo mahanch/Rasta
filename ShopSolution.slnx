@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Aspire/">
+    <Project Path="src/Aspire/Shop.AppHost/Shop.AppHost.csproj" />
+    <Project Path="src/Aspire/Shop.ServiceDefaults/Shop.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/src/LicenseServer/">
+    <Project Path="src/LicenseServer/LicenseServer.Api/LicenseServer.Api.csproj" />
+    <Project Path="src/LicenseServer/LicenseServer.Domain/LicenseServer.Domain.csproj" />
+    <Project Path="src/LicenseServer/LicenseServer.Infrastructure/LicenseServer.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Shop/">
+    <Project Path="src/Shop/Shop.Api/Shop.Api.csproj" />
+    <Project Path="src/Shop/Shop.Application/Shop.Application.csproj" />
+    <Project Path="src/Shop/Shop.Domain/Shop.Domain.csproj" />
+    <Project Path="src/Shop/Shop.Infrastructure/Shop.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Shop.Tests/Shop.Tests.csproj" />
+  </Folder> 
+</Solution>
