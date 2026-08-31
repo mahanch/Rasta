@@ -35,4 +35,3 @@ var shopApi = builder.AddProject<Projects.Shop_Api>("shop-api")
     .WithHttpEndpoint(port: 5200, name: "public");
 
 builder.Build().Run();
-
