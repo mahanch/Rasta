@@ -39,11 +39,10 @@ public class RegisterUserCommandHandler : IRequestHandler<RegisterUserCommand, R
         var passwordHash = _passwordHasher.HashPassword(request.Password);
         var user = new User(request.Email, request.FullName, passwordHash, "Customer", request.PhoneNumber);
 
-        await _userRepo.AddAsync(user, cancellationToken);
-        await _unitOfWork.CommitChangesAsync(cancellationToken);
-
         var tokens = _jwtService.GenerateTokens(user.Id, user.Email, user.FullName, user.Role);
         user.AddRefreshToken(tokens.RefreshToken, tokens.ExpiresAt.AddDays(7));
+
+        await _userRepo.AddAsync(user, cancellationToken);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
 
         return Result<AuthResponseDto>.Success(tokens);

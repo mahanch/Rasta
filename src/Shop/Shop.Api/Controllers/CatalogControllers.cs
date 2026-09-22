@@ -76,7 +76,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// جستجو و فیلتر پیشرفته محصولات با صفحه‌بندی (سمت خواندن MongoDB)
+    /// جستجو و فیلتر پیشرفته محصولات با صفحه‌بندی (کوئری مستقیم بهینه روی دیتابیس)
     /// </summary>
     /// <param name="query">پارامترهای فیلتر شامل شناسه دسته‌بندی، عبارت جستجو، محدوده قیمت و شماره صفحه</param>
     /// <param name="ct">توکن لغو عملیات</param>
@@ -135,7 +135,7 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// ایجاد محصول جدید و انتشار رویداد همگام‌سازی CQRS با RabbitMQ (مخصوص مدیر سیستم)
+    /// ایجاد محصول جدید (مخصوص مدیر سیستم)
     /// </summary>
     /// <param name="command">مشخصات کامل محصول شامل قیمت، موجودی، تصاویر و دسته‌بندی</param>
     /// <param name="ct">توکن لغو عملیات</param>

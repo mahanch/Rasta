@@ -1,6 +1,5 @@
 using MediatR;
 using Shop.Application.Common.Interfaces;
-using Shop.Application.Contracts;
 using Shop.Application.DTOs;
 using Shop.Domain.Common;
 using Shop.Domain.Entities;
@@ -22,22 +21,19 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
     private readonly IOrderRepository _orderRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILicenseClientService _licenseService;
-    private readonly IEventPublisher _eventPublisher;
 
     public CheckoutOrderCommandHandler(
         ICartRepository cartRepo,
         IProductRepository productRepo,
         IOrderRepository orderRepo,
         IUnitOfWork unitOfWork,
-        ILicenseClientService licenseService,
-        IEventPublisher eventPublisher)
+        ILicenseClientService licenseService)
     {
         _cartRepo = cartRepo;
         _productRepo = productRepo;
         _orderRepo = orderRepo;
         _unitOfWork = unitOfWork;
         _licenseService = licenseService;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result<OrderDto>> Handle(CheckoutOrderCommand request, CancellationToken cancellationToken)
@@ -100,27 +96,6 @@ public class CheckoutOrderCommandHandler : IRequestHandler<CheckoutOrderCommand,
 
         await _unitOfWork.CommitChangesAsync(cancellationToken);
 
-        // 6. Publish Integration Event to RabbitMQ (for Mongo read projection)
-        await _eventPublisher.PublishAsync(new OrderCreatedIntegrationEvent(
-            order.Id,
-            order.OrderNumber,
-            order.UserId,
-            order.TotalAmount,
-            order.DiscountAmount,
-            order.FinalAmount,
-            order.Status.ToString(),
-            order.PaymentStatus.ToString(),
-            shippingAddressVo.RecipientName,
-            shippingAddressVo.Street,
-            shippingAddressVo.City,
-            shippingAddressVo.State,
-            shippingAddressVo.PostalCode,
-            shippingAddressVo.Country,
-            shippingAddressVo.PhoneNumber,
-            order.Items.Select(i => new OrderItemIntegrationDto(i.ProductId, i.ProductName, i.Sku, i.UnitPrice, i.Quantity, i.TotalPrice, i.ImageUrl)).ToList(),
-            order.CreatedAt
-        ), cancellationToken);
-
         return Result<OrderDto>.Success(MapToDto(order));
     }
 
@@ -151,13 +126,11 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
 {
     private readonly IOrderRepository _orderRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public UpdateOrderStatusCommandHandler(IOrderRepository orderRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public UpdateOrderStatusCommandHandler(IOrderRepository orderRepo, IUnitOfWork unitOfWork)
     {
         _orderRepo = orderRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result> Handle(UpdateOrderStatusCommand request, CancellationToken cancellationToken)
@@ -165,17 +138,8 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
         var order = await _orderRepo.GetByIdAsync(request.OrderId, cancellationToken);
         if (order == null) return Result.Failure(new Error("Order.NotFound", "Order not found."));
 
-        var prevStatus = order.Status.ToString();
         order.UpdateStatus(request.NewStatus);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new OrderStatusChangedIntegrationEvent(
-            order.Id,
-            order.OrderNumber,
-            prevStatus,
-            order.Status.ToString(),
-            DateTimeOffset.UtcNow
-        ), cancellationToken);
 
         return Result.Success();
     }

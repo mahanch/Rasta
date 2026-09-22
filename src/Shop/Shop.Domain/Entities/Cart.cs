@@ -13,7 +13,6 @@ public class Cart : AggregateRoot<Guid>
 
     public Cart(Guid userId)
     {
-        Id = Guid.NewGuid();
         UserId = userId;
         CreatedAt = DateTimeOffset.UtcNow;
     }
@@ -86,7 +85,6 @@ public class CartItem : Entity<Guid>
 
     public CartItem(Guid cartId, Guid productId, string productName, string sku, decimal unitPrice, int quantity, string? imageUrl)
     {
-        Id = Guid.NewGuid();
         CartId = cartId;
         ProductId = productId;
         ProductName = productName;

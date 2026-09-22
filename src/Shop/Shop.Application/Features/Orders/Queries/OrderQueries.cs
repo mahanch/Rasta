@@ -1,9 +1,10 @@
 using MediatR;
-using MongoDB.Driver;
+using Microsoft.EntityFrameworkCore;
 using Shop.Application.Common.Interfaces;
 using Shop.Application.DTOs;
-using Shop.Application.ReadModels;
 using Shop.Domain.Common;
+using Shop.Domain.Entities;
+using Shop.Domain.ValueObjects;
 
 namespace Shop.Application.Features.Orders.Queries;
 
@@ -11,44 +12,32 @@ public record GetOrderByIdQuery(Guid OrderId, Guid? UserId = null) : IRequest<Re
 
 public class GetOrderByIdQueryHandler : IRequestHandler<GetOrderByIdQuery, Result<OrderDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetOrderByIdQueryHandler(IMongoReadDbContext mongo)
+    public GetOrderByIdQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<Result<OrderDto>> Handle(GetOrderByIdQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<OrderReadModel>("orders_view");
-        var filter = Builders<OrderReadModel>.Filter.Eq(o => o.Id, request.OrderId);
+        var query = _db.Orders
+            .AsNoTracking()
+            .Include(o => o.Items)
+            .Where(o => o.Id == request.OrderId);
+
         if (request.UserId.HasValue)
         {
-            filter &= Builders<OrderReadModel>.Filter.Eq(o => o.UserId, request.UserId.Value);
+            query = query.Where(o => o.UserId == request.UserId.Value);
         }
 
-        var order = await collection.Find(filter).FirstOrDefaultAsync(cancellationToken);
+        var order = await query.FirstOrDefaultAsync(cancellationToken);
         if (order == null)
         {
             return Result<OrderDto>.Failure(new Error("Order.NotFound", "Order not found."));
         }
 
-        return Result<OrderDto>.Success(new OrderDto(
-            order.Id,
-            order.OrderNumber,
-            order.UserId,
-            order.Status,
-            order.PaymentStatus,
-            order.TotalAmount,
-            order.DiscountAmount,
-            order.FinalAmount,
-            new AddressDto(order.ShippingAddress.Street, order.ShippingAddress.City, order.ShippingAddress.State, order.ShippingAddress.PostalCode, order.ShippingAddress.Country, order.ShippingAddress.RecipientName, order.ShippingAddress.PhoneNumber),
-            order.Items.Select(i => new OrderItemDetailDto(i.ProductId, i.ProductName, i.Sku, i.UnitPrice, i.Quantity, i.TotalPrice, i.ImageUrl)).ToList(),
-            order.PaymentTransactionId,
-            order.CancellationReason,
-            order.CreatedAt,
-            order.PaidAt
-        ));
+        return Result<OrderDto>.Success(OrderQueryHelpers.MapToDto(order));
     }
 }
 
@@ -56,41 +45,31 @@ public record GetCustomerOrdersQuery(Guid UserId, int Page = 1, int PageSize = 1
 
 public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQuery, PaginatedResult<OrderDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetCustomerOrdersQueryHandler(IMongoReadDbContext mongo)
+    public GetCustomerOrdersQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<PaginatedResult<OrderDto>> Handle(GetCustomerOrdersQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<OrderReadModel>("orders_view");
-        var filter = Builders<OrderReadModel>.Filter.Eq(o => o.UserId, request.UserId);
+        var query = _db.Orders
+            .AsNoTracking()
+            .Include(o => o.Items)
+            .Where(o => o.UserId == request.UserId);
 
-        var total = await collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var total = await query.CountAsync(cancellationToken);
         var skip = Math.Max(0, (request.Page - 1) * request.PageSize);
-        var orders = await collection.Find(filter).SortByDescending(o => o.CreatedAt).Skip(skip).Limit(request.PageSize).ToListAsync(cancellationToken);
+        var orders = await query
+            .OrderByDescending(o => o.CreatedAt)
+            .Skip(skip)
+            .Take(request.PageSize)
+            .ToListAsync(cancellationToken);
 
-        var dtos = orders.Select(o => new OrderDto(
-            o.Id,
-            o.OrderNumber,
-            o.UserId,
-            o.Status,
-            o.PaymentStatus,
-            o.TotalAmount,
-            o.DiscountAmount,
-            o.FinalAmount,
-            new AddressDto(o.ShippingAddress.Street, o.ShippingAddress.City, o.ShippingAddress.State, o.ShippingAddress.PostalCode, o.ShippingAddress.Country, o.ShippingAddress.RecipientName, o.ShippingAddress.PhoneNumber),
-            o.Items.Select(i => new OrderItemDetailDto(i.ProductId, i.ProductName, i.Sku, i.UnitPrice, i.Quantity, i.TotalPrice, i.ImageUrl)).ToList(),
-            o.PaymentTransactionId,
-            o.CancellationReason,
-            o.CreatedAt,
-            o.PaidAt
-        )).ToList();
-
+        var dtos = orders.Select(OrderQueryHelpers.MapToDto).ToList();
         var totalPages = (int)Math.Ceiling((double)total / request.PageSize);
-        return new PaginatedResult<OrderDto>(dtos, (int)total, request.Page, request.PageSize, totalPages);
+        return new PaginatedResult<OrderDto>(dtos, total, request.Page, request.PageSize, totalPages);
     }
 }
 
@@ -98,44 +77,61 @@ public record GetAdminOrdersQuery(string? Status = null, int Page = 1, int PageS
 
 public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, PaginatedResult<OrderDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetAdminOrdersQueryHandler(IMongoReadDbContext mongo)
+    public GetAdminOrdersQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<PaginatedResult<OrderDto>> Handle(GetAdminOrdersQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<OrderReadModel>("orders_view");
-        var filter = Builders<OrderReadModel>.Filter.Empty;
-        if (!string.IsNullOrWhiteSpace(request.Status))
+        var query = _db.Orders
+            .AsNoTracking()
+            .Include(o => o.Items)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(request.Status) && Enum.TryParse<OrderStatus>(request.Status, true, out var parsedStatus))
         {
-            filter &= Builders<OrderReadModel>.Filter.Eq(o => o.Status, request.Status);
+            query = query.Where(o => o.Status == parsedStatus);
         }
 
-        var total = await collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var total = await query.CountAsync(cancellationToken);
         var skip = Math.Max(0, (request.Page - 1) * request.PageSize);
-        var orders = await collection.Find(filter).SortByDescending(o => o.CreatedAt).Skip(skip).Limit(request.PageSize).ToListAsync(cancellationToken);
+        var orders = await query
+            .OrderByDescending(o => o.CreatedAt)
+            .Skip(skip)
+            .Take(request.PageSize)
+            .ToListAsync(cancellationToken);
 
-        var dtos = orders.Select(o => new OrderDto(
+        var dtos = orders.Select(OrderQueryHelpers.MapToDto).ToList();
+        var totalPages = (int)Math.Ceiling((double)total / request.PageSize);
+        return new PaginatedResult<OrderDto>(dtos, total, request.Page, request.PageSize, totalPages);
+    }
+}
+
+internal static class OrderQueryHelpers
+{
+    public static OrderDto MapToDto(Order o) =>
+        new(
             o.Id,
             o.OrderNumber,
             o.UserId,
-            o.Status,
-            o.PaymentStatus,
+            o.Status.ToString(),
+            o.PaymentStatus.ToString(),
             o.TotalAmount,
             o.DiscountAmount,
             o.FinalAmount,
-            new AddressDto(o.ShippingAddress.Street, o.ShippingAddress.City, o.ShippingAddress.State, o.ShippingAddress.PostalCode, o.ShippingAddress.Country, o.ShippingAddress.RecipientName, o.ShippingAddress.PhoneNumber),
+            ToAddressDto(o.ShippingAddress),
             o.Items.Select(i => new OrderItemDetailDto(i.ProductId, i.ProductName, i.Sku, i.UnitPrice, i.Quantity, i.TotalPrice, i.ImageUrl)).ToList(),
             o.PaymentTransactionId,
             o.CancellationReason,
             o.CreatedAt,
             o.PaidAt
-        )).ToList();
+        );
 
-        var totalPages = (int)Math.Ceiling((double)total / request.PageSize);
-        return new PaginatedResult<OrderDto>(dtos, (int)total, request.Page, request.PageSize, totalPages);
-    }
+    private static AddressDto ToAddressDto(Address? a) =>
+        a != null
+            ? new AddressDto(a.Street, a.City, a.State, a.PostalCode, a.Country, a.RecipientName, a.PhoneNumber)
+            : new AddressDto(string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
 }

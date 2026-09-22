@@ -1,14 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using Shop.Domain.Entities;
 using Shop.Domain.Repositories;
+using Shop.Infrastructure.Persistence;
 
 namespace Shop.Infrastructure.Persistence.Write.Repositories;
 
 public class UnitOfWork : IUnitOfWork
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public UnitOfWork(ShopWriteDbContext db)
+    public UnitOfWork(ShopDbContext db)
     {
         _db = db;
     }
@@ -21,9 +22,9 @@ public class UnitOfWork : IUnitOfWork
 
 public class UserRepository : IUserRepository
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public UserRepository(ShopWriteDbContext db) => _db = db;
+    public UserRepository(ShopDbContext db) => _db = db;
 
     public async Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await _db.Users.Include(u => u.RefreshTokens).FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
@@ -42,9 +43,9 @@ public class UserRepository : IUserRepository
 
 public class CategoryRepository : ICategoryRepository
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public CategoryRepository(ShopWriteDbContext db) => _db = db;
+    public CategoryRepository(ShopDbContext db) => _db = db;
 
     public async Task<Category?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await _db.Categories.Include(c => c.SubCategories).FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
@@ -65,9 +66,9 @@ public class CategoryRepository : ICategoryRepository
 
 public class ProductRepository : IProductRepository
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public ProductRepository(ShopWriteDbContext db) => _db = db;
+    public ProductRepository(ShopDbContext db) => _db = db;
 
     public async Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await _db.Products.Include(p => p.Category).Include(p => p.Brand).Include(p => p.Images).FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
@@ -88,9 +89,9 @@ public class ProductRepository : IProductRepository
 
 public class CartRepository : ICartRepository
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public CartRepository(ShopWriteDbContext db) => _db = db;
+    public CartRepository(ShopDbContext db) => _db = db;
 
     public async Task<Cart?> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
         await _db.Carts.Include(c => c.Items).FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
@@ -103,9 +104,9 @@ public class CartRepository : ICartRepository
 
 public class OrderRepository : IOrderRepository
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public OrderRepository(ShopWriteDbContext db) => _db = db;
+    public OrderRepository(ShopDbContext db) => _db = db;
 
     public async Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await _db.Orders.Include(o => o.Items).Include(o => o.User).FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
@@ -124,9 +125,9 @@ public class OrderRepository : IOrderRepository
 
 public class PaymentRepository : IPaymentRepository
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public PaymentRepository(ShopWriteDbContext db) => _db = db;
+    public PaymentRepository(ShopDbContext db) => _db = db;
 
     public async Task<PaymentTransaction?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await _db.PaymentTransactions.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
@@ -145,9 +146,9 @@ public class PaymentRepository : IPaymentRepository
 
 public class BlogRepository : IBlogRepository
 {
-    private readonly ShopWriteDbContext _db;
+    private readonly ShopDbContext _db;
 
-    public BlogRepository(ShopWriteDbContext db) => _db = db;
+    public BlogRepository(ShopDbContext db) => _db = db;
 
     public async Task<BlogPost?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await _db.BlogPosts.Include(p => p.Category).Include(p => p.Comments).FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
@@ -171,3 +172,4 @@ public class BlogRepository : IBlogRepository
 
     public void DeletePost(BlogPost post) => _db.BlogPosts.Remove(post);
 }
+

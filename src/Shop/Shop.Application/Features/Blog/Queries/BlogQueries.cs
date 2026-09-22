@@ -1,9 +1,7 @@
 using MediatR;
-using MongoDB.Bson;
-using MongoDB.Driver;
+using Microsoft.EntityFrameworkCore;
 using Shop.Application.Common.Interfaces;
 using Shop.Application.DTOs;
-using Shop.Application.ReadModels;
 using Shop.Domain.Common;
 
 namespace Shop.Application.Features.Blog.Queries;
@@ -19,46 +17,52 @@ public record GetBlogPostsQuery(
 
 public class GetBlogPostsQueryHandler : IRequestHandler<GetBlogPostsQuery, PaginatedResult<BlogPostSummaryDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetBlogPostsQueryHandler(IMongoReadDbContext mongo)
+    public GetBlogPostsQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<PaginatedResult<BlogPostSummaryDto>> Handle(GetBlogPostsQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<BlogPostReadModel>("blog_posts_view");
-        var builder = Builders<BlogPostReadModel>.Filter;
-        var filter = builder.Empty;
+        var query = _db.BlogPosts
+            .AsNoTracking()
+            .Include(p => p.Category)
+            .Include(p => p.Comments)
+            .AsQueryable();
 
         if (!request.IncludeUnpublished)
         {
-            filter &= builder.Eq(p => p.IsPublished, true);
+            query = query.Where(p => p.IsPublished);
         }
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            var searchRegex = new BsonRegularExpression(request.Search, "i");
-            filter &= (builder.Regex(p => p.Title, searchRegex) | builder.Regex(p => p.Summary, searchRegex) | builder.Regex(p => p.Content, searchRegex));
+            var search = request.Search.Trim().ToLower();
+            query = query.Where(p =>
+                p.Title.ToLower().Contains(search) ||
+                p.Summary.ToLower().Contains(search) ||
+                p.Content.ToLower().Contains(search));
         }
 
         if (request.CategoryId.HasValue)
         {
-            filter &= builder.Eq(p => p.CategoryId, request.CategoryId.Value);
+            query = query.Where(p => p.CategoryId == request.CategoryId.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(request.Tag))
         {
-            filter &= builder.AnyEq(p => p.Tags, request.Tag.Trim().ToLowerInvariant());
+            var tag = request.Tag.Trim().ToLowerInvariant();
+            query = query.Where(p => p.Tags.Contains(tag));
         }
 
-        var total = await collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var total = await query.CountAsync(cancellationToken);
         var skip = Math.Max(0, (request.Page - 1) * request.PageSize);
-        var posts = await collection.Find(filter)
-            .SortByDescending(p => p.PublishedAt ?? p.CreatedAt)
+        var posts = await query
+            .OrderByDescending(p => p.PublishedAt ?? p.CreatedAt)
             .Skip(skip)
-            .Limit(request.PageSize)
+            .Take(request.PageSize)
             .ToListAsync(cancellationToken);
 
         var dtos = posts.Select(p => new BlogPostSummaryDto(
@@ -69,18 +73,18 @@ public class GetBlogPostsQueryHandler : IRequestHandler<GetBlogPostsQuery, Pagin
             p.CoverImageUrl,
             p.AuthorName,
             p.CategoryId,
-            p.CategoryName,
+            p.Category?.Name,
             p.Tags,
             p.ReadingTimeMinutes,
             p.ViewCount,
-            p.ApprovedCommentCount,
+            p.Comments.Count(c => c.IsApproved),
             p.IsPublished,
             p.PublishedAt,
             p.CreatedAt
         )).ToList();
 
         var totalPages = (int)Math.Ceiling((double)total / request.PageSize);
-        return new PaginatedResult<BlogPostSummaryDto>(dtos, (int)total, request.Page, request.PageSize, totalPages);
+        return new PaginatedResult<BlogPostSummaryDto>(dtos, total, request.Page, request.PageSize, totalPages);
     }
 }
 
@@ -88,26 +92,29 @@ public record GetBlogPostBySlugQuery(string Slug, bool IncludeUnapprovedComments
 
 public class GetBlogPostBySlugQueryHandler : IRequestHandler<GetBlogPostBySlugQuery, Result<BlogPostDetailDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetBlogPostBySlugQueryHandler(IMongoReadDbContext mongo)
+    public GetBlogPostBySlugQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<Result<BlogPostDetailDto>> Handle(GetBlogPostBySlugQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<BlogPostReadModel>("blog_posts_view");
-        var post = await collection.Find(p => p.Slug == request.Slug.ToLowerInvariant()).FirstOrDefaultAsync(cancellationToken);
+        var slug = request.Slug.ToLowerInvariant();
+        var post = await _db.BlogPosts
+            .Include(p => p.Category)
+            .Include(p => p.Comments)
+            .FirstOrDefaultAsync(p => p.Slug == slug, cancellationToken);
 
         if (post == null)
         {
             return Result<BlogPostDetailDto>.Failure(new Error("Blog.NotFound", "Blog post not found."));
         }
 
-        // Increment view count in MongoDB read model
-        var update = Builders<BlogPostReadModel>.Update.Inc(p => p.ViewCount, 1);
-        await collection.UpdateOneAsync(p => p.Id == post.Id, update, cancellationToken: cancellationToken);
+        // Increment view count in PostgreSQL
+        post.IncrementViewCount();
+        await _db.SaveChangesAsync(cancellationToken);
 
         var comments = post.Comments
             .Where(c => request.IncludeUnapprovedComments || c.IsApproved)
@@ -124,10 +131,10 @@ public class GetBlogPostBySlugQueryHandler : IRequestHandler<GetBlogPostBySlugQu
             post.AuthorId,
             post.AuthorName,
             post.CategoryId,
-            post.CategoryName,
+            post.Category?.Name,
             post.Tags,
             post.ReadingTimeMinutes,
-            post.ViewCount + 1,
+            post.ViewCount,
             post.IsPublished,
             post.PublishedAt,
             post.CreatedAt,
@@ -140,17 +147,19 @@ public record GetBlogCategoriesQuery() : IRequest<List<BlogCategoryDto>>;
 
 public class GetBlogCategoriesQueryHandler : IRequestHandler<GetBlogCategoriesQuery, List<BlogCategoryDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetBlogCategoriesQueryHandler(IMongoReadDbContext mongo)
+    public GetBlogCategoriesQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<List<BlogCategoryDto>> Handle(GetBlogCategoriesQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<BlogCategoryReadModel>("blog_categories_view");
-        var list = await collection.Find(Builders<BlogCategoryReadModel>.Filter.Empty).ToListAsync(cancellationToken);
+        var list = await _db.BlogCategories
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
         return list.Select(c => new BlogCategoryDto(c.Id, c.Name, c.Slug, c.Description, c.CreatedAt)).ToList();
     }
 }

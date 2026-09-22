@@ -63,4 +63,55 @@ public class JwtTokenService : IJwtTokenService
             expiresAt
         );
     }
+
+    public AdminLoginResponse GenerateAdminTokens(Guid userId, string email, string fullName, string role, string roleNameFa, List<string> permissions)
+    {
+        var tokenHandler = new JwtSecurityTokenHandler();
+        var key = Encoding.UTF8.GetBytes(_secret);
+        var expiresAt = DateTime.UtcNow.AddMinutes(_expiryMinutes);
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, userId.ToString()),
+            new(ClaimTypes.Email, email),
+            new(ClaimTypes.Name, fullName),
+            new(ClaimTypes.Role, role),
+            new("roleNameFa", roleNameFa)
+        };
+
+        foreach (var p in permissions)
+        {
+            claims.Add(new Claim("permission", p));
+        }
+
+        var tokenDescriptor = new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity(claims),
+            Expires = expiresAt,
+            Issuer = _issuer,
+            Audience = _audience,
+            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+        };
+
+        var token = tokenHandler.CreateToken(tokenDescriptor);
+        var jwtString = tokenHandler.WriteToken(token);
+        var refreshToken = $"RT-{Guid.NewGuid():N}"[..32].ToUpperInvariant();
+        var expiresInSeconds = _expiryMinutes * 60;
+
+        var userDto = new AdminUserDto(
+            userId.ToString(),
+            fullName,
+            email,
+            role,
+            roleNameFa,
+            permissions
+        );
+
+        return new AdminLoginResponse(
+            jwtString,
+            refreshToken,
+            expiresInSeconds,
+            userDto
+        );
+    }
 }

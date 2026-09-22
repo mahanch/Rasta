@@ -1,5 +1,4 @@
 using System.Text;
-using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -7,11 +6,7 @@ using Microsoft.OpenApi;
 using Shop.Application.Common.Interfaces;
 using Shop.Domain.Repositories;
 using Shop.Infrastructure.License;
-using Shop.Infrastructure.Messaging;
-using Shop.Infrastructure.Messaging.Consumers;
 using Shop.Infrastructure.Persistence;
-using Shop.Infrastructure.Persistence.Read;
-using Shop.Infrastructure.Persistence.Write;
 using Shop.Infrastructure.Persistence.Write.Repositories;
 using Shop.Infrastructure.Security;
 
@@ -20,18 +15,18 @@ var builder = WebApplication.CreateBuilder(args);
 // Aspire Service Defaults
 builder.AddServiceDefaults();
 
-// 1. PostgreSQL Write Database Context
-var writeDbConn = builder.Configuration.GetConnectionString("shop-write-db") 
+// 1. Single PostgreSQL Database Context (Handles both CQRS Writes and Reads)
+var shopDbConn = builder.Configuration.GetConnectionString("shop-db") 
+    ?? builder.Configuration.GetConnectionString("shop-write-db")
     ?? builder.Configuration.GetConnectionString("DefaultConnection") 
-    ?? "Host=localhost;Port=5432;Database=shop_write_db;Username=postgres;Password=postgres";
+    ?? "Host=localhost;Port=5432;Database=shop_db;Username=postgres;Password=postgres";
 
-builder.Services.AddDbContext<ShopWriteDbContext>(options =>
-    options.UseNpgsql(writeDbConn));
+builder.Services.AddDbContext<ShopDbContext>(options =>
+    options.UseNpgsql(shopDbConn));
 
-// 2. MongoDB Read Database Context
-builder.Services.AddSingleton<IMongoReadDbContext, MongoReadDbContext>();
+builder.Services.AddScoped<IShopDbContext>(sp => sp.GetRequiredService<ShopDbContext>());
 
-// 3. Write Repositories & Unit of Work
+// 2. Repositories & Unit of Work (Commands / Domain Persistence)
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
@@ -40,8 +35,9 @@ builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IBlogRepository, BlogRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IAuditLogService, Shop.Infrastructure.Services.AuditLogService>();
 
-// 4. Security & JWT
+// 3. Security & JWT
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 
@@ -70,45 +66,13 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// 5. MediatR (CQRS Pipeline)
+// 4. MediatR (CQRS Pipeline: Commands and Direct-DB Queries)
 builder.Services.AddMediatR(cfg =>
 {
     cfg.RegisterServicesFromAssembly(typeof(Shop.Application.DTOs.AuthResponseDto).Assembly);
 });
 
-// 6. MassTransit & RabbitMQ Event Bus
-var rabbitMqConn = builder.Configuration.GetConnectionString("messaging") 
-    ?? builder.Configuration["RabbitMQ:ConnectionString"];
-
-builder.Services.AddMassTransit(x =>
-{
-    x.AddConsumer<ProductProjectionConsumer>();
-    x.AddConsumer<CategoryProjectionConsumer>();
-    x.AddConsumer<OrderProjectionConsumer>();
-    x.AddConsumer<BlogPostProjectionConsumer>();
-    x.AddConsumer<BlogCategoryProjectionConsumer>();
-
-    if (!string.IsNullOrWhiteSpace(rabbitMqConn) && rabbitMqConn.StartsWith("amqp", StringComparison.OrdinalIgnoreCase))
-    {
-        x.UsingRabbitMq((context, cfg) =>
-        {
-            cfg.Host(new Uri(rabbitMqConn));
-            cfg.ConfigureEndpoints(context);
-        });
-    }
-    else
-    {
-        // Fallback to high-performance in-memory bus if rabbitmq connection is not configured or during local standalone testing
-        x.UsingInMemory((context, cfg) =>
-        {
-            cfg.ConfigureEndpoints(context);
-        });
-    }
-});
-
-builder.Services.AddScoped<IEventPublisher, EventPublisher>();
-
-// 7. License Client Service & Background Sync
+// 5. License Client Service & Background Sync
 var licenseServerUrl = builder.Configuration["LicenseSettings:LicenseServerUrl"] ?? "http://localhost:5100";
 builder.Services.AddHttpClient<ILicenseClientService, LicenseClientService>(client =>
 {
@@ -118,19 +82,22 @@ builder.Services.AddHttpClient<ILicenseClientService, LicenseClientService>(clie
 
 builder.Services.AddHostedService<LicenseSyncWorker>();
 
-// 8. Seeder
+// 6. Database Seeder
 builder.Services.AddScoped<ShopDatabaseSeeder>();
 
-// 9. Web & Swagger
-builder.Services.AddControllers();
+// 7. Web & Swagger
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<Shop.Api.Filters.AdminApiResponseFilter>();
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Enterprise Shop API (DDD + CQRS)",
-        Version = "v1",
-        Description = "Enterprise-Grade Dynamic Shop MVP with Separated Read (Mongo) & Write (PostgreSQL), RabbitMQ, and License Protection."
+        Title = "Aura Leather Admin API Specification",
+        Version = "v1.0.0",
+        Description = "سند جامع مشخصات فنی APIهای پنل مدیریت چرم اورا (۱۴ ماژول ادمین، هوش تجاری، ماتریس انبارداری ۳۹ تا ۴۵، تایملاین کارگاه و لاگ تغییرات)."
     });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -179,10 +146,6 @@ using (var scope = app.Services.CreateScope())
 {
     var seeder = scope.ServiceProvider.GetRequiredService<ShopDatabaseSeeder>();
     await seeder.SeedAsync();
-
-    // Initial License verification
-    var licenseService = scope.ServiceProvider.GetRequiredService<ILicenseClientService>();
-    await licenseService.GetOrRefreshLicenseStateAsync(forceRefresh: true);
 }
 
 app.UseSwagger();

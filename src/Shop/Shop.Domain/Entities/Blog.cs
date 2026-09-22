@@ -14,7 +14,6 @@ public class BlogCategory : Entity<Guid>
 
     public BlogCategory(string name, string slug, string? description = null)
     {
-        Id = Guid.NewGuid();
         Name = name.Trim();
         Slug = slug.Trim().ToLowerInvariant();
         Description = description;
@@ -71,7 +70,6 @@ public class BlogPost : AggregateRoot<Guid>
     {
         var post = new BlogPost
         {
-            Id = Guid.NewGuid(),
             Title = title.Trim(),
             Slug = slug.Trim().ToLowerInvariant(),
             Summary = summary.Trim(),
@@ -220,7 +218,6 @@ public class BlogComment : Entity<Guid>
 
     public BlogComment(Guid blogPostId, Guid? userId, string userName, string userEmail, string content, bool isApproved = false)
     {
-        Id = Guid.NewGuid();
         BlogPostId = blogPostId;
         UserId = userId;
         UserName = userName.Trim();

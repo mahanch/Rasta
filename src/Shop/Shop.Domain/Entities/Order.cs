@@ -61,7 +61,6 @@ public class Order : AggregateRoot<Guid>
 
         var order = new Order
         {
-            Id = Guid.NewGuid(),
             OrderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}"[..22].ToUpperInvariant(),
             UserId = userId,
             ShippingAddress = shippingAddress,
@@ -155,7 +154,6 @@ public class OrderItem : Entity<Guid>
 
     public OrderItem(Guid orderId, Guid productId, string productName, string sku, decimal unitPrice, int quantity, string? imageUrl)
     {
-        Id = Guid.NewGuid();
         OrderId = orderId;
         ProductId = productId;
         ProductName = productName;

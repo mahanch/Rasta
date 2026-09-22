@@ -1,6 +1,5 @@
 using MediatR;
 using Shop.Application.Common.Interfaces;
-using Shop.Application.Contracts;
 using Shop.Domain.Common;
 using Shop.Domain.Entities;
 using Shop.Domain.Repositories;
@@ -59,20 +58,17 @@ public class SimulatePaymentSuccessCommandHandler : IRequestHandler<SimulatePaym
     private readonly IPaymentRepository _paymentRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILicenseClientService _licenseService;
-    private readonly IEventPublisher _eventPublisher;
 
     public SimulatePaymentSuccessCommandHandler(
         IOrderRepository orderRepo,
         IPaymentRepository paymentRepo,
         IUnitOfWork unitOfWork,
-        ILicenseClientService licenseService,
-        IEventPublisher eventPublisher)
+        ILicenseClientService licenseService)
     {
         _orderRepo = orderRepo;
         _paymentRepo = paymentRepo;
         _unitOfWork = unitOfWork;
         _licenseService = licenseService;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result> Handle(SimulatePaymentSuccessCommand request, CancellationToken cancellationToken)
@@ -93,16 +89,6 @@ public class SimulatePaymentSuccessCommandHandler : IRequestHandler<SimulatePaym
 
         // Record order usage on License Server (decrement quota / increment count)
         await _licenseService.RecordOrderUsageAsync(cancellationToken);
-
-        // Publish OrderPaidIntegrationEvent (for Mongo projections)
-        await _eventPublisher.PublishAsync(new OrderPaidIntegrationEvent(
-            order.Id,
-            order.OrderNumber,
-            order.UserId,
-            order.FinalAmount,
-            refCode,
-            order.PaidAt ?? DateTimeOffset.UtcNow
-        ), cancellationToken);
 
         return Result.Success();
     }

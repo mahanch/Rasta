@@ -1,11 +1,9 @@
 using FluentAssertions;
 using Moq;
 using Shop.Application.Common.Interfaces;
-using Shop.Application.Contracts;
 using Shop.Application.DTOs;
 using Shop.Application.Features.Orders.Commands;
 using Shop.Application.Features.Payments.Commands;
-using Shop.Domain.Common;
 using Shop.Domain.Entities;
 using Shop.Domain.Repositories;
 using Shop.Domain.ValueObjects;
@@ -24,7 +22,6 @@ public class CqrsAndLicenseTests
         var mockOrderRepo = new Mock<IOrderRepository>();
         var mockUnitOfWork = new Mock<IUnitOfWork>();
         var mockLicenseService = new Mock<ILicenseClientService>();
-        var mockEventPublisher = new Mock<IEventPublisher>();
 
         // License limit reached (e.g. 100/100 orders used)
         mockLicenseService.Setup(l => l.CanProcessOrderAsync(It.IsAny<CancellationToken>()))
@@ -38,8 +35,7 @@ public class CqrsAndLicenseTests
             mockProductRepo.Object,
             mockOrderRepo.Object,
             mockUnitOfWork.Object,
-            mockLicenseService.Object,
-            mockEventPublisher.Object
+            mockLicenseService.Object
         );
 
         var address = new AddressDto("Street 1", "City", "State", "12345", "Country", "Recipient", "123456");
@@ -55,7 +51,7 @@ public class CqrsAndLicenseTests
     }
 
     [Fact]
-    public async Task Checkout_WhenLicenseIsValid_ShouldCreateOrderAndPublishEvent()
+    public async Task Checkout_WhenLicenseIsValid_ShouldCreateOrderAndSave()
     {
         // Arrange
         var userId = Guid.NewGuid();
@@ -66,7 +62,6 @@ public class CqrsAndLicenseTests
         var mockOrderRepo = new Mock<IOrderRepository>();
         var mockUnitOfWork = new Mock<IUnitOfWork>();
         var mockLicenseService = new Mock<ILicenseClientService>();
-        var mockEventPublisher = new Mock<IEventPublisher>();
 
         // License valid
         mockLicenseService.Setup(l => l.CanProcessOrderAsync(It.IsAny<CancellationToken>()))
@@ -88,8 +83,7 @@ public class CqrsAndLicenseTests
             mockProductRepo.Object,
             mockOrderRepo.Object,
             mockUnitOfWork.Object,
-            mockLicenseService.Object,
-            mockEventPublisher.Object
+            mockLicenseService.Object
         );
 
         var address = new AddressDto("Street 1", "City", "State", "12345", "Country", "Recipient", "123456");
@@ -110,9 +104,6 @@ public class CqrsAndLicenseTests
         // Verify order saved
         mockOrderRepo.Verify(r => r.AddAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Once);
         mockUnitOfWork.Verify(u => u.CommitChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-
-        // Verify integration event published to RabbitMQ
-        mockEventPublisher.Verify(p => p.PublishAsync(It.IsAny<OrderCreatedIntegrationEvent>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -133,14 +124,12 @@ public class CqrsAndLicenseTests
         var mockPaymentRepo = new Mock<IPaymentRepository>();
         var mockUnitOfWork = new Mock<IUnitOfWork>();
         var mockLicenseService = new Mock<ILicenseClientService>();
-        var mockEventPublisher = new Mock<IEventPublisher>();
 
         var handler = new SimulatePaymentSuccessCommandHandler(
             mockOrderRepo.Object,
             mockPaymentRepo.Object,
             mockUnitOfWork.Object,
-            mockLicenseService.Object,
-            mockEventPublisher.Object
+            mockLicenseService.Object
         );
 
         var command = new SimulatePaymentSuccessCommand(order.Id, "TXN-TEST-123");
@@ -155,8 +144,5 @@ public class CqrsAndLicenseTests
 
         // Verify License server called to record order usage
         mockLicenseService.Verify(l => l.RecordOrderUsageAsync(It.IsAny<CancellationToken>()), Times.Once);
-
-        // Verify OrderPaid event published
-        mockEventPublisher.Verify(p => p.PublishAsync(It.IsAny<OrderPaidIntegrationEvent>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }

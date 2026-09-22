@@ -19,7 +19,6 @@ public class Category : AggregateRoot<Guid>
 
     public Category(string name, string slug, string? description = null, string? imageUrl = null, Guid? parentCategoryId = null)
     {
-        Id = Guid.NewGuid();
         Name = name.Trim();
         Slug = slug.Trim().ToLowerInvariant();
         Description = description;
@@ -55,7 +54,6 @@ public class Brand : Entity<Guid>
 
     public Brand(string name, string slug, string? logoUrl = null)
     {
-        Id = Guid.NewGuid();
         Name = name.Trim();
         Slug = slug.Trim().ToLowerInvariant();
         LogoUrl = logoUrl;

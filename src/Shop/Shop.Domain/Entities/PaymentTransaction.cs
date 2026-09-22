@@ -20,7 +20,6 @@ public class PaymentTransaction : AggregateRoot<Guid>
     {
         return new PaymentTransaction
         {
-            Id = Guid.NewGuid(),
             OrderId = orderId,
             Amount = amount,
             GatewayName = gatewayName,

@@ -10,6 +10,26 @@ public abstract class Entity<TId> where TId : notnull
 {
     public TId Id { get; protected set; } = default!;
 
+    protected Entity()
+    {
+        if (typeof(TId) == typeof(Guid))
+        {
+            Id = (TId)(object)Guid.NewGuid();
+        }
+    }
+
+    protected Entity(TId id)
+    {
+        if (typeof(TId) == typeof(Guid) && EqualityComparer<TId>.Default.Equals(id, default))
+        {
+            Id = (TId)(object)Guid.NewGuid();
+        }
+        else
+        {
+            Id = id;
+        }
+    }
+
     public override bool Equals(object? obj)
     {
         if (obj is not Entity<TId> other) return false;
@@ -27,6 +47,9 @@ public abstract class Entity<TId> where TId : notnull
 
 public abstract class AggregateRoot<TId> : Entity<TId> where TId : notnull
 {
+    protected AggregateRoot() : base() { }
+    protected AggregateRoot(TId id) : base(id) { }
+
     private readonly List<IDomainEvent> _domainEvents = [];
     public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
 

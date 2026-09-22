@@ -1,6 +1,4 @@
 using MediatR;
-using Shop.Application.Common.Interfaces;
-using Shop.Application.Contracts;
 using Shop.Domain.Common;
 using Shop.Domain.Entities;
 using Shop.Domain.Repositories;
@@ -24,13 +22,11 @@ public class CreateBlogPostCommandHandler : IRequestHandler<CreateBlogPostComman
 {
     private readonly IBlogRepository _blogRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public CreateBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public CreateBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork)
     {
         _blogRepo = blogRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result<Guid>> Handle(CreateBlogPostCommand request, CancellationToken cancellationToken)
@@ -65,24 +61,6 @@ public class CreateBlogPostCommandHandler : IRequestHandler<CreateBlogPostComman
         await _blogRepo.AddPostAsync(post, cancellationToken);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
 
-        await _eventPublisher.PublishAsync(new BlogPostCreatedIntegrationEvent(
-            post.Id,
-            post.Title,
-            post.Slug,
-            post.Summary,
-            post.Content,
-            post.CoverImageUrl,
-            post.AuthorId,
-            post.AuthorName,
-            post.CategoryId,
-            categoryName,
-            post.Tags,
-            post.ReadingTimeMinutes,
-            post.IsPublished,
-            post.PublishedAt,
-            post.CreatedAt
-        ), cancellationToken);
-
         return Result<Guid>.Success(post.Id);
     }
 }
@@ -103,13 +81,11 @@ public class UpdateBlogPostCommandHandler : IRequestHandler<UpdateBlogPostComman
 {
     private readonly IBlogRepository _blogRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public UpdateBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public UpdateBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork)
     {
         _blogRepo = blogRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result> Handle(UpdateBlogPostCommand request, CancellationToken cancellationToken)
@@ -137,23 +113,6 @@ public class UpdateBlogPostCommandHandler : IRequestHandler<UpdateBlogPostComman
         );
 
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new BlogPostUpdatedIntegrationEvent(
-            post.Id,
-            post.Title,
-            post.Slug,
-            post.Summary,
-            post.Content,
-            post.CoverImageUrl,
-            post.CategoryId,
-            categoryName,
-            post.Tags,
-            post.ReadingTimeMinutes,
-            post.IsPublished,
-            post.PublishedAt,
-            post.UpdatedAt ?? DateTimeOffset.UtcNow
-        ), cancellationToken);
-
         return Result.Success();
     }
 }
@@ -164,13 +123,11 @@ public class PublishBlogPostCommandHandler : IRequestHandler<PublishBlogPostComm
 {
     private readonly IBlogRepository _blogRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public PublishBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public PublishBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork)
     {
         _blogRepo = blogRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result> Handle(PublishBlogPostCommand request, CancellationToken cancellationToken)
@@ -182,23 +139,6 @@ public class PublishBlogPostCommandHandler : IRequestHandler<PublishBlogPostComm
         else post.Unpublish();
 
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new BlogPostUpdatedIntegrationEvent(
-            post.Id,
-            post.Title,
-            post.Slug,
-            post.Summary,
-            post.Content,
-            post.CoverImageUrl,
-            post.CategoryId,
-            post.Category?.Name,
-            post.Tags,
-            post.ReadingTimeMinutes,
-            post.IsPublished,
-            post.PublishedAt,
-            post.UpdatedAt ?? DateTimeOffset.UtcNow
-        ), cancellationToken);
-
         return Result.Success();
     }
 }
@@ -209,13 +149,11 @@ public class DeleteBlogPostCommandHandler : IRequestHandler<DeleteBlogPostComman
 {
     private readonly IBlogRepository _blogRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public DeleteBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public DeleteBlogPostCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork)
     {
         _blogRepo = blogRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result> Handle(DeleteBlogPostCommand request, CancellationToken cancellationToken)
@@ -226,7 +164,6 @@ public class DeleteBlogPostCommandHandler : IRequestHandler<DeleteBlogPostComman
         _blogRepo.DeletePost(post);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
 
-        await _eventPublisher.PublishAsync(new BlogPostDeletedIntegrationEvent(post.Id), cancellationToken);
         return Result.Success();
     }
 }
@@ -243,13 +180,11 @@ public class AddBlogCommentCommandHandler : IRequestHandler<AddBlogCommentComman
 {
     private readonly IBlogRepository _blogRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public AddBlogCommentCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public AddBlogCommentCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork)
     {
         _blogRepo = blogRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result<Guid>> Handle(AddBlogCommentCommand request, CancellationToken cancellationToken)
@@ -261,17 +196,6 @@ public class AddBlogCommentCommandHandler : IRequestHandler<AddBlogCommentComman
         var comment = post.AddComment(request.UserId, request.UserName, request.UserEmail, request.Content, autoApprove: false);
 
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new BlogCommentAddedIntegrationEvent(
-            comment.Id,
-            post.Id,
-            request.UserId,
-            request.UserName,
-            request.Content,
-            comment.IsApproved,
-            comment.CreatedAt
-        ), cancellationToken);
-
         return Result<Guid>.Success(comment.Id);
     }
 }
@@ -282,13 +206,11 @@ public class ApproveBlogCommentCommandHandler : IRequestHandler<ApproveBlogComme
 {
     private readonly IBlogRepository _blogRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public ApproveBlogCommentCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public ApproveBlogCommentCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork)
     {
         _blogRepo = blogRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result> Handle(ApproveBlogCommentCommand request, CancellationToken cancellationToken)
@@ -298,8 +220,6 @@ public class ApproveBlogCommentCommandHandler : IRequestHandler<ApproveBlogComme
 
         post.ApproveComment(request.CommentId);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new BlogCommentApprovedIntegrationEvent(post.Id, request.CommentId), cancellationToken);
 
         return Result.Success();
     }
@@ -311,13 +231,11 @@ public class CreateBlogCategoryCommandHandler : IRequestHandler<CreateBlogCatego
 {
     private readonly IBlogRepository _blogRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public CreateBlogCategoryCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public CreateBlogCategoryCommandHandler(IBlogRepository blogRepo, IUnitOfWork unitOfWork)
     {
         _blogRepo = blogRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result<Guid>> Handle(CreateBlogCategoryCommand request, CancellationToken cancellationToken)
@@ -325,14 +243,6 @@ public class CreateBlogCategoryCommandHandler : IRequestHandler<CreateBlogCatego
         var category = new BlogCategory(request.Name, request.Slug, request.Description);
         await _blogRepo.AddCategoryAsync(category, cancellationToken);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new BlogCategoryCreatedIntegrationEvent(
-            category.Id,
-            category.Name,
-            category.Slug,
-            category.Description,
-            category.CreatedAt
-        ), cancellationToken);
 
         return Result<Guid>.Success(category.Id);
     }

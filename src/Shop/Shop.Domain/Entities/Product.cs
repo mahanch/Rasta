@@ -42,7 +42,6 @@ public class Product : AggregateRoot<Guid>
         string? brandName = null,
         List<string>? imageUrls = null)
     {
-        Id = Guid.NewGuid();
         Name = name.Trim();
         Slug = slug.Trim().ToLowerInvariant();
         Description = description;
@@ -174,7 +173,6 @@ public class ProductImage : Entity<Guid>
 
     public ProductImage(string imageUrl, bool isPrimary = false, int displayOrder = 0)
     {
-        Id = Guid.NewGuid();
         ImageUrl = imageUrl;
         IsPrimary = isPrimary;
         DisplayOrder = displayOrder;

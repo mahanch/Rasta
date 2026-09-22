@@ -19,7 +19,6 @@ public class User : AggregateRoot<Guid>
 
     public User(string email, string fullName, string passwordHash, string role = "Customer", string? phoneNumber = null)
     {
-        Id = Guid.NewGuid();
         Email = email.Trim().ToLowerInvariant();
         FullName = fullName.Trim();
         PasswordHash = passwordHash;
@@ -57,9 +56,8 @@ public class User : AggregateRoot<Guid>
     }
 }
 
-public class RefreshToken
+public class RefreshToken : Entity<Guid>
 {
-    public Guid Id { get; private set; }
     public string Token { get; private set; } = string.Empty;
     public Guid UserId { get; private set; }
     public DateTimeOffset ExpiresAt { get; private set; }
@@ -70,7 +68,6 @@ public class RefreshToken
 
     public RefreshToken(string token, Guid userId, DateTimeOffset expiresAt)
     {
-        Id = Guid.NewGuid();
         Token = token;
         UserId = userId;
         ExpiresAt = expiresAt;

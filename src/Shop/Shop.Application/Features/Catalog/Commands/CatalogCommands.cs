@@ -1,6 +1,4 @@
 using MediatR;
-using Shop.Application.Common.Interfaces;
-using Shop.Application.Contracts;
 using Shop.Domain.Common;
 using Shop.Domain.Entities;
 using Shop.Domain.Repositories;
@@ -21,16 +19,13 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
 {
     private readonly ICategoryRepository _categoryRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
     public CreateCategoryCommandHandler(
         ICategoryRepository categoryRepo,
-        IUnitOfWork unitOfWork,
-        IEventPublisher eventPublisher)
+        IUnitOfWork unitOfWork)
     {
         _categoryRepo = categoryRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result<Guid>> Handle(CreateCategoryCommand request, CancellationToken cancellationToken)
@@ -44,17 +39,6 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
         var category = new Category(request.Name, request.Slug, request.Description, request.ImageUrl, request.ParentCategoryId);
         await _categoryRepo.AddAsync(category, cancellationToken);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new CategoryCreatedOrUpdatedIntegrationEvent(
-            category.Id,
-            category.Name,
-            category.Slug,
-            category.Description,
-            category.ImageUrl,
-            category.IsActive,
-            category.ParentCategoryId,
-            DateTimeOffset.UtcNow
-        ), cancellationToken);
 
         return Result<Guid>.Success(category.Id);
     }
@@ -79,18 +63,15 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
     private readonly IProductRepository _productRepo;
     private readonly ICategoryRepository _categoryRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
     public CreateProductCommandHandler(
         IProductRepository productRepo,
         ICategoryRepository categoryRepo,
-        IUnitOfWork unitOfWork,
-        IEventPublisher eventPublisher)
+        IUnitOfWork unitOfWork)
     {
         _productRepo = productRepo;
         _categoryRepo = categoryRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result<Guid>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
@@ -129,22 +110,6 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         await _productRepo.AddAsync(product, cancellationToken);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
 
-        await _eventPublisher.PublishAsync(new ProductCreatedIntegrationEvent(
-            product.Id,
-            product.Name,
-            product.Slug,
-            product.Sku.Value,
-            product.Price.Amount,
-            product.DiscountPrice?.Amount,
-            product.StockQuantity,
-            product.CategoryId,
-            category.Name,
-            product.BrandId,
-            null,
-            product.Images.Select(i => i.ImageUrl).ToList(),
-            product.CreatedAt
-        ), cancellationToken);
-
         return Result<Guid>.Success(product.Id);
     }
 }
@@ -155,13 +120,11 @@ public class UpdateProductStockCommandHandler : IRequestHandler<UpdateProductSto
 {
     private readonly IProductRepository _productRepo;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IEventPublisher _eventPublisher;
 
-    public UpdateProductStockCommandHandler(IProductRepository productRepo, IUnitOfWork unitOfWork, IEventPublisher eventPublisher)
+    public UpdateProductStockCommandHandler(IProductRepository productRepo, IUnitOfWork unitOfWork)
     {
         _productRepo = productRepo;
         _unitOfWork = unitOfWork;
-        _eventPublisher = eventPublisher;
     }
 
     public async Task<Result> Handle(UpdateProductStockCommand request, CancellationToken cancellationToken)
@@ -172,16 +135,8 @@ public class UpdateProductStockCommandHandler : IRequestHandler<UpdateProductSto
             return Result.Failure(new Error("Product.NotFound", "Product not found."));
         }
 
-        var oldStock = product.StockQuantity;
         product.SetStock(request.NewStock);
         await _unitOfWork.CommitChangesAsync(cancellationToken);
-
-        await _eventPublisher.PublishAsync(new ProductStockChangedIntegrationEvent(
-            product.Id,
-            oldStock,
-            product.StockQuantity,
-            DateTimeOffset.UtcNow
-        ), cancellationToken);
 
         return Result.Success();
     }

@@ -1,8 +1,7 @@
 using MediatR;
-using MongoDB.Driver;
+using Microsoft.EntityFrameworkCore;
 using Shop.Application.Common.Interfaces;
 using Shop.Application.DTOs;
-using Shop.Application.ReadModels;
 using Shop.Domain.Common;
 
 namespace Shop.Application.Features.Catalog.Queries;
@@ -21,85 +20,90 @@ public record GetProductsQuery(
 
 public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, PaginatedResult<ProductDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetProductsQueryHandler(IMongoReadDbContext mongo)
+    public GetProductsQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<PaginatedResult<ProductDto>> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<ProductReadModel>("products_view");
-        var builder = Builders<ProductReadModel>.Filter;
-        var filter = builder.Eq(p => p.IsActive, true);
+        var query = _db.Products
+            .AsNoTracking()
+            .Include(p => p.Category)
+            .Include(p => p.Brand)
+            .Include(p => p.Images)
+            .Where(p => p.IsActive);
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            var searchRegex = new MongoDB.Bson.BsonRegularExpression(request.Search, "i");
-            filter &= (builder.Regex(p => p.Name, searchRegex) | builder.Regex(p => p.Description, searchRegex) | builder.Regex(p => p.Sku, searchRegex));
+            var search = request.Search.Trim().ToLower();
+            query = query.Where(p =>
+                p.Name.ToLower().Contains(search) ||
+                p.Description.ToLower().Contains(search));
         }
 
         if (request.CategoryId.HasValue)
         {
-            filter &= builder.Eq(p => p.CategoryId, request.CategoryId.Value);
+            query = query.Where(p => p.CategoryId == request.CategoryId.Value);
         }
 
         if (request.BrandId.HasValue)
         {
-            filter &= builder.Eq(p => p.BrandId, request.BrandId.Value);
+            query = query.Where(p => p.BrandId == request.BrandId.Value);
         }
 
         if (request.MinPrice.HasValue)
         {
-            filter &= builder.Gte(p => p.Price, request.MinPrice.Value);
+            query = query.Where(p => p.Price.Amount >= request.MinPrice.Value);
         }
 
         if (request.MaxPrice.HasValue)
         {
-            filter &= builder.Lte(p => p.Price, request.MaxPrice.Value);
+            query = query.Where(p => p.Price.Amount <= request.MaxPrice.Value);
         }
 
         if (request.InStockOnly == true)
         {
-            filter &= builder.Gt(p => p.StockQuantity, 0);
+            query = query.Where(p => p.StockQuantity > 0);
         }
 
-        var count = await collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var count = await query.CountAsync(cancellationToken);
 
-        var query = collection.Find(filter);
         query = request.SortBy?.ToLowerInvariant() switch
         {
-            "price_asc" => query.SortBy(p => p.Price),
-            "price_desc" => query.SortByDescending(p => p.Price),
-            _ => query.SortByDescending(p => p.CreatedAt)
+            "price_asc" => query.OrderBy(p => p.Price.Amount),
+            "price_desc" => query.OrderByDescending(p => p.Price.Amount),
+            "name" => query.OrderBy(p => p.Name),
+            _ => query.OrderByDescending(p => p.CreatedAt)
         };
 
         var skip = Math.Max(0, (request.Page - 1) * request.PageSize);
-        var items = await query.Skip(skip).Limit(request.PageSize).ToListAsync(cancellationToken);
+        var items = await query.Skip(skip).Take(request.PageSize).ToListAsync(cancellationToken);
 
         var dtos = items.Select(p => new ProductDto(
             p.Id,
             p.Name,
             p.Slug,
             p.Description,
-            p.Sku,
-            p.Price,
-            p.DiscountPrice,
-            p.DiscountPrice ?? p.Price,
+            p.Sku.Value,
+            p.Price.Amount,
+            p.DiscountPrice?.Amount,
+            p.GetCurrentEffectivePrice(),
             p.StockQuantity,
-            p.InStock,
+            p.StockQuantity > 0,
             p.IsActive,
             p.CategoryId,
-            p.CategoryName,
+            p.Category.Name,
             p.BrandId,
-            p.BrandName,
-            p.ImageUrls,
+            p.Brand?.Name,
+            p.Images.OrderBy(i => i.DisplayOrder).Select(i => i.ImageUrl).ToList(),
             p.CreatedAt
         )).ToList();
 
         var totalPages = (int)Math.Ceiling((double)count / request.PageSize);
-        return new PaginatedResult<ProductDto>(dtos, (int)count, request.Page, request.PageSize, totalPages);
+        return new PaginatedResult<ProductDto>(dtos, count, request.Page, request.PageSize, totalPages);
     }
 }
 
@@ -107,23 +111,29 @@ public record GetProductByIdQuery(Guid Id) : IRequest<Result<ProductDto>>;
 
 public class GetProductByIdQueryHandler : IRequestHandler<GetProductByIdQuery, Result<ProductDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetProductByIdQueryHandler(IMongoReadDbContext mongo)
+    public GetProductByIdQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<Result<ProductDto>> Handle(GetProductByIdQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<ProductReadModel>("products_view");
-        var p = await collection.Find(x => x.Id == request.Id).FirstOrDefaultAsync(cancellationToken);
+        var p = await _db.Products
+            .AsNoTracking()
+            .Include(p => p.Category)
+            .Include(p => p.Brand)
+            .Include(p => p.Images)
+            .FirstOrDefaultAsync(x => x.Id == request.Id, cancellationToken);
+
         if (p == null) return Result<ProductDto>.Failure(new Error("Product.NotFound", "Product not found."));
 
         return Result<ProductDto>.Success(new ProductDto(
-            p.Id, p.Name, p.Slug, p.Description, p.Sku, p.Price, p.DiscountPrice,
-            p.DiscountPrice ?? p.Price, p.StockQuantity, p.InStock, p.IsActive,
-            p.CategoryId, p.CategoryName, p.BrandId, p.BrandName, p.ImageUrls, p.CreatedAt
+            p.Id, p.Name, p.Slug, p.Description, p.Sku.Value, p.Price.Amount, p.DiscountPrice?.Amount,
+            p.GetCurrentEffectivePrice(), p.StockQuantity, p.StockQuantity > 0, p.IsActive,
+            p.CategoryId, p.Category.Name, p.BrandId, p.Brand?.Name,
+            p.Images.OrderBy(i => i.DisplayOrder).Select(i => i.ImageUrl).ToList(), p.CreatedAt
         ));
     }
 }
@@ -132,23 +142,30 @@ public record GetProductBySlugQuery(string Slug) : IRequest<Result<ProductDto>>;
 
 public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuery, Result<ProductDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetProductBySlugQueryHandler(IMongoReadDbContext mongo)
+    public GetProductBySlugQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<Result<ProductDto>> Handle(GetProductBySlugQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<ProductReadModel>("products_view");
-        var p = await collection.Find(x => x.Slug == request.Slug.ToLowerInvariant()).FirstOrDefaultAsync(cancellationToken);
+        var slug = request.Slug.ToLowerInvariant();
+        var p = await _db.Products
+            .AsNoTracking()
+            .Include(p => p.Category)
+            .Include(p => p.Brand)
+            .Include(p => p.Images)
+            .FirstOrDefaultAsync(x => x.Slug == slug, cancellationToken);
+
         if (p == null) return Result<ProductDto>.Failure(new Error("Product.NotFound", "Product not found."));
 
         return Result<ProductDto>.Success(new ProductDto(
-            p.Id, p.Name, p.Slug, p.Description, p.Sku, p.Price, p.DiscountPrice,
-            p.DiscountPrice ?? p.Price, p.StockQuantity, p.InStock, p.IsActive,
-            p.CategoryId, p.CategoryName, p.BrandId, p.BrandName, p.ImageUrls, p.CreatedAt
+            p.Id, p.Name, p.Slug, p.Description, p.Sku.Value, p.Price.Amount, p.DiscountPrice?.Amount,
+            p.GetCurrentEffectivePrice(), p.StockQuantity, p.StockQuantity > 0, p.IsActive,
+            p.CategoryId, p.Category.Name, p.BrandId, p.Brand?.Name,
+            p.Images.OrderBy(i => i.DisplayOrder).Select(i => i.ImageUrl).ToList(), p.CreatedAt
         ));
     }
 }
@@ -157,17 +174,20 @@ public record GetCategoriesQuery() : IRequest<List<CategoryDto>>;
 
 public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, List<CategoryDto>>
 {
-    private readonly IMongoReadDbContext _mongo;
+    private readonly IShopDbContext _db;
 
-    public GetCategoriesQueryHandler(IMongoReadDbContext mongo)
+    public GetCategoriesQueryHandler(IShopDbContext db)
     {
-        _mongo = mongo;
+        _db = db;
     }
 
     public async Task<List<CategoryDto>> Handle(GetCategoriesQuery request, CancellationToken cancellationToken)
     {
-        var collection = _mongo.GetCollection<CategoryReadModel>("categories_view");
-        var list = await collection.Find(c => c.IsActive).ToListAsync(cancellationToken);
+        var list = await _db.Categories
+            .AsNoTracking()
+            .Where(c => c.IsActive)
+            .ToListAsync(cancellationToken);
+
         return list.Select(c => new CategoryDto(c.Id, c.Name, c.Slug, c.Description, c.ImageUrl, c.IsActive, c.ParentCategoryId)).ToList();
     }
 }
